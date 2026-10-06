@@ -1,0 +1,39 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: eduvision-backend
+  datasource:
+    url: jdbc:h2:file:./data/eduvision
+    driver: org.h2.Driver
+    username: sa
+    password: ""
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+  jackson:
+    time-zone: UTC
+    serialization:
+      write-dates-as-timestamps: false
+
+# AR EduVision settings
+eduvision:
+  jwt:
+    # Override in production via the EDUVISION_JWT_SECRET environment variable.
+    secret: ${EDUVISION_JWT_SECRET:ar-eduvision-dev-secret-key-change-me-in-production-2026}
+    ttl-hours: 12
+  ai:
+    # Leave the API key EMPTY to run the tutor fully offline against approved AR content.
+    api-key: ${EDUVISION_AI_API_KEY:}
+    url: ${EDUVISION_AI_URL:https://api.openai.com/v1/chat/completions}
+    model: ${EDUVISION_AI_MODEL:gpt-4o-mini}
+
+logging:
+  level:
+    root: INFO
+    com.eduvision: INFO
