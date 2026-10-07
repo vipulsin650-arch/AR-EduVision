@@ -177,3 +177,35 @@ areduvision\
 | **6** | Frontend UI: classes, lessons, AR viewer, quiz |
 | **7** | End-to-end integration + seed walkthrough |
 | **8** | Polish, docs, final verification |
+
+---
+
+## 8. Deploy to Vercel
+
+The repo ships a complete **serverless mirror** of the API so the app runs without the
+Java backend:
+
+| File | Purpose |
+|---|---|
+| `api/[...all].js` | Full API handler (auth, classes, contents, quiz grading, analytics, AI tutor, live classroom). `student1` responses hide answer keys; `teacher`/`developer` see them. |
+| `api/seed.json` | Demo data regenerated 1:1 from the real Java backend (44 endpoints captured, all HTTP 200). |
+| `vercel.json` | `framework: null` + rewrites so `/api/*` hits `api/[...all].js` FIRST, then static files, then the SPA fallback. |
+
+Deployment checklist:
+
+- Import the repo **at its root** (do NOT set Root Directory to `frontend/` — the
+  `api/` folder must be visible to Vercel).
+- General-purpose deployment, no override for the Build Command is needed
+  (`frontend` on its own builds straight to `frontend/dist`, which Vercel serves).
+- After deploy, Functions → `api/[...all].js` should be listed, and
+  `GET https://<your-app>.vercel.app/api/health` must return `{"status":"ok"}`.
+
+Demo logins (serverless mode):
+
+- Student: `student1@eduvision.com` / `Student@123`
+- Teacher: `teacher@eduvision.com` / `Teacher@123`
+- Developer: `developer@eduvision.com` / `Developer@123`
+
+Known serverless limits: live-session state is held in the function instance (30 min
+TTL) — cold starts may reset it; this is fine for demos but a production build should
+use a shared store. Quiz grading, auth and analytics are stateless and fully serverless-safe.
