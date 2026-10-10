@@ -37,3 +37,40 @@ logging:
   level:
     root: INFO
     com.eduvision: INFO
+
+---
+# ────────────────────────────────────────────────────────────────────────────
+# "postgres" profile  –  PostgreSQL (production / docker-compose).
+# The DEFAULT datasource above stays H2 so the app runs here with no Docker.
+# Activate with: java -jar ... --spring.profiles.active=postgres
+#             or set SPRING_PROFILES_ACTIVE=postgres
+# A docker-compose.yml at the project root matches these defaults.
+# ────────────────────────────────────────────────────────────────────────────
+spring:
+  config:
+    activate:
+      on-profile: postgres
+
+  datasource:
+    url: ${EDUVISION_DB_URL:jdbc:postgresql://localhost:5432/eduvision}
+    username: ${EDUVISION_DB_USER:eduvision}
+    password: ${EDUVISION_DB_PASS:eduvision_dev}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      pool-name: EduVisionPool
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000   # 30 s
+      idle-timeout: 600000        # 10 min
+      max-lifetime: 1800000       # 30 min
+
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+        jdbc:
+          time_zone: UTC

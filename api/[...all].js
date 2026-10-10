@@ -11,6 +11,9 @@
 //   GET  /api/ar-content                  GET  /api/ar-content/{id}
 //   GET  /api/ar-content/marker/{markerId}
 //   GET  /api/classes                     GET  /api/classes/{id}/roster
+//   GET  /api/classes/{id}/schedule        POST /api/classes/{id}/schedule (teacher)
+//   PUT  /api/classes/{id}/schedule/{sid}  DELETE /api/classes/{id}/schedule/{sid}
+//   GET  /api/schedule/day/{DAY}
 //   GET  /api/assignments                 GET  /api/assignments/student
 //   GET  /api/progress/me                 GET  /api/quiz/results/me
 //   POST /api/quiz/submit                 (real server-side grading)
@@ -33,11 +36,14 @@ const USERS = {
 
 const ROLES = ['TEACHER', 'STUDENT', 'DEVELOPER']
 const LIVE_TTL_MS = 30 * 60 * 1000 // a live session auto-expires after 30 min
+const DAY_ORDER = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY']
 
 // ---- per-instance state (warm lambda only; resets on cold start) -----------
 const endedIds = new Set()
 const joinedBySession = new Map()
 const attemptsByKey = new Map()
+const scheduleByClass = new Map() // classId -> [ ScheduleDto ]  (lazily seeded)
+let scheduleNextId = null
 let quizResultsMine = null // lazily cloned from seed.quizResults
 
 function send(res, code, obj) {
@@ -113,6 +119,66 @@ function stripAnswers(detail) {
 function roleIsSafe(detail) {
   const q = (detail.questions || [])[0]
   return !q || q.correctOption === null || q.correctOption === undefined
+}
+
+// ---------------------------------------------------------------------------
+// class schedule — mirrors ClassScheduleController (weekly timetable slots)
+// ---------------------------------------------------------------------------
+function seedSchedules() {
+  if (scheduleNextId !== null) return
+  const src = seed.classSchedules || {}
+  Object.keys(src).forEach((k) => scheduleByClass.set(Number(k), (src[k] || []).slice()))
+  let maxId = 0
+  scheduleByClass.forEach((list) => list.forEach((s) => { if (s.id > maxId) maxId = s.id }))
+  scheduleNextId = maxId + 1
+}
+
+function dayIndex(day) {
+  const i = DAY_ORDER.indexOf(String(day || '').toUpperCase())
+  return i >= 0 ? i : 99
+}
+
+function schedulesFor(classId) {
+  seedSchedules()
+  const list = scheduleByClass.get(Number(classId)) || []
+  return list
+    .slice()
+    .sort((a, b) => dayIndex(a.dayOfWeek) - dayIndex(b.dayOfWeek) || String(a.startTime).localeCompare(String(b.startTime)))
+}
+
+function scheduleDto(classId, id, day, start, end, room, notes) {
+  const cls = (seed.classes || [])[0] || {}
+  return {
+    id,
+    classId: Number(classId),
+    className: cls.name || 'Grade 10 Science - A',
+    grade: cls.grade || '',
+    section: cls.section || '',
+    dayOfWeek: day,
+    startTime: start,
+    endTime: end,
+    room: (room && String(room).trim()) || null,
+    notes: (notes && String(notes).trim()) || null,
+  }
+}
+
+/** Canonical HH:mm (drops :00 seconds) — mirrors java.time.LocalTime.toString(). */
+function canonTime(t) {
+  const m = String(t).match(/^(\d{2}):(\d{2})(?::(\d{2}))?$/)
+  if (!m) return null
+  return m[3] && m[3] !== '00' ? `${m[1]}:${m[2]}:${m[3]}` : `${m[1]}:${m[2]}`
+}
+
+/** Validates a ScheduleRequest body; returns {error} string or {day,start,end}. */
+function validateSlot(b) {
+  const day = String(b.dayOfWeek || '').toUpperCase()
+  if (DAY_ORDER.indexOf(day) < 0) return { error: 'dayOfWeek must be one of ' + DAY_ORDER.join(', ') }
+  const start = canonTime(b.startTime)
+  const end = canonTime(b.endTime)
+  if (!start) return { error: 'startTime must be a time in HH:mm format' }
+  if (!end) return { error: 'endTime must be a time in HH:mm format' }
+  if (end <= start) return { error: 'endTime must be after startTime' }
+  return { day, start, end }
 }
 
 // ---------------------------------------------------------------------------
@@ -330,6 +396,57 @@ module.exports = (req, res) => {
   if (m === 'GET' && s0 === 'classes' && seg[2] === 'roster') {
     const roster = (seed.roster && (seed.roster[seg[1]] || seed.roster['1'])) || []
     return send(res, 200, roster)
+  }
+
+  // ---- class schedule (mirrors ClassScheduleController) -------------------
+  //   GET    /api/classes/{id}/schedule        list slots for a class
+  //   POST   /api/classes/{id}/schedule        add a slot        (TEACHER)
+  //   PUT    /api/classes/{id}/schedule/{sid}  update a slot     (TEACHER)
+  //   DELETE /api/classes/{id}/schedule/{sid}  remove a slot     (TEACHER)
+  //   GET    /api/schedule/day/{DAY}           every slot on a day (TEACHER)
+  if (s0 === 'classes' && seg[2] === 'schedule') {
+    seedSchedules()
+    const classId = Number(seg[1])
+    const list = scheduleByClass.get(classId) || []
+    if (m === 'GET' && !seg[3]) return send(res, 200, schedulesFor(classId))
+    if (m === 'POST' && !seg[3]) {
+      if (role !== 'TEACHER') return send(res, 403, { message: 'Only teachers can edit a timetable.' })
+      const b = parseBody(req)
+      const v = validateSlot(b)
+      if (v.error) return send(res, 400, { message: v.error })
+      if (list.some((s) => s.dayOfWeek === v.day && s.startTime === v.start)) {
+        return send(res, 409, { message: `A slot already exists for ${v.day} at ${v.start}` })
+      }
+      const created = scheduleDto(classId, scheduleNextId++, v.day, v.start, v.end, b.room, b.notes)
+      list.push(created)
+      scheduleByClass.set(classId, list)
+      return send(res, 201, created)
+    }
+    if ((m === 'PUT' || m === 'DELETE') && seg[3]) {
+      if (role !== 'TEACHER') return send(res, 403, { message: 'Only teachers can edit a timetable.' })
+      const sid = Number(seg[3])
+      const idx = list.findIndex((s) => s.id === sid)
+      if (idx < 0) return send(res, 404, { message: 'Schedule slot not found in this class' })
+      if (m === 'DELETE') {
+        list.splice(idx, 1)
+        scheduleByClass.set(classId, list)
+        return send(res, 204, {})
+      }
+      const v = validateSlot(parseBody(req))
+      if (v.error) return send(res, 400, { message: v.error })
+      const updated = scheduleDto(classId, sid, v.day, v.start, v.end, parseBody(req).room, parseBody(req).notes)
+      list[idx] = updated
+      scheduleByClass.set(classId, list)
+      return send(res, 200, updated)
+    }
+  }
+  if (m === 'GET' && s0 === 'schedule' && seg[1] === 'day' && seg[2]) {
+    const day = String(seg[2]).toUpperCase()
+    if (DAY_ORDER.indexOf(day) < 0) return send(res, 400, { message: `Unknown day '${seg[2]}'.` })
+    seedSchedules()
+    const out = []
+    scheduleByClass.forEach((l) => l.forEach((s) => { if (s.dayOfWeek === day) out.push(s) }))
+    return send(res, 200, out)
   }
 
   // ---- assignments --------------------------------------------------------

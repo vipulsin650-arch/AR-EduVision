@@ -61,8 +61,12 @@ export default function LoginPage() {
       navigate(dashboardPath(res.user.role), { replace: true })
     } catch (err) {
       const status = err && typeof err === 'object' && 'status' in err ? (err as { status: number }).status : 0
-      if (status === 401 || status === 400 || status >= 500) {
-        setError(err instanceof Error ? err.message : 'Sign-in failed.')
+      if (status === 401 || status === 400) {
+        setError(err instanceof Error ? err.message : 'Invalid credentials.')
+      } else if (status === 405) {
+        setError('Sign-in failed (HTTP 405 Method Not Allowed). The request to /api/auth/login was rejected.')
+      } else if (err instanceof Error) {
+        setError(err.message)
       } else {
         setError('Sign-in failed. Is the backend running on port 8081?')
       }

@@ -16,6 +16,8 @@ import com.eduvision.domain.ArContent;
 import com.eduvision.domain.Assignment;
 import com.eduvision.domain.AssignmentStatus;
 import com.eduvision.domain.ClassMember;
+import com.eduvision.domain.ClassSchedule;
+import com.eduvision.domain.ClassSchedule.DayOfWeek;
 import com.eduvision.domain.ContentPart;
 import com.eduvision.domain.ContentStatus;
 import com.eduvision.domain.EduClass;
@@ -26,6 +28,7 @@ import com.eduvision.domain.User;
 import com.eduvision.repository.ArContentRepository;
 import com.eduvision.repository.AssignmentRepository;
 import com.eduvision.repository.ClassMemberRepository;
+import com.eduvision.repository.ClassScheduleRepository;
 import com.eduvision.repository.ContentPartRepository;
 import com.eduvision.repository.EduClassRepository;
 import com.eduvision.repository.QuizQuestionRepository;
@@ -56,6 +59,7 @@ public class DataSeeder implements ApplicationRunner {
     private final ContentPartRepository contentPartRepository;
     private final QuizQuestionRepository quizQuestionRepository;
     private final AssignmentRepository assignmentRepository;
+    private final ClassScheduleRepository classScheduleRepository;
 
     public DataSeeder(UserRepository userRepository,
                       EduClassRepository eduClassRepository,
@@ -63,7 +67,8 @@ public class DataSeeder implements ApplicationRunner {
                       ArContentRepository arContentRepository,
                       ContentPartRepository contentPartRepository,
                       QuizQuestionRepository quizQuestionRepository,
-                      AssignmentRepository assignmentRepository) {
+                      AssignmentRepository assignmentRepository,
+                      ClassScheduleRepository classScheduleRepository) {
         this.userRepository = userRepository;
         this.eduClassRepository = eduClassRepository;
         this.classMemberRepository = classMemberRepository;
@@ -71,6 +76,7 @@ public class DataSeeder implements ApplicationRunner {
         this.contentPartRepository = contentPartRepository;
         this.quizQuestionRepository = quizQuestionRepository;
         this.assignmentRepository = assignmentRepository;
+        this.classScheduleRepository = classScheduleRepository;
     }
 
     @Override
@@ -411,11 +417,35 @@ public class DataSeeder implements ApplicationRunner {
         assignmentRepository.saveAll(List.of(a1, a2));
         log.info("[SEED] assignments={}", assignmentRepository.count());
 
+        // ------------------------------------------------------ class schedules
+        // Seed a realistic weekly timetable for the one demo class.
+        // The time import at the top of the method (java.time.Instant) is already
+        // present; we only need java.time.LocalTime which is used inline below.
+        classScheduleRepository.saveAll(List.of(
+                new ClassSchedule(eduClass, DayOfWeek.MONDAY,
+                        java.time.LocalTime.of(9, 0), java.time.LocalTime.of(10, 0),
+                        "Room 101", "Introduction to AR concepts"),
+                new ClassSchedule(eduClass, DayOfWeek.MONDAY,
+                        java.time.LocalTime.of(11, 0), java.time.LocalTime.of(12, 0),
+                        "Lab A", "Hands-on AR session — bring your device"),
+                new ClassSchedule(eduClass, DayOfWeek.WEDNESDAY,
+                        java.time.LocalTime.of(9, 0), java.time.LocalTime.of(10, 0),
+                        "Room 101", "Theory: Optics & Physics of AR"),
+                new ClassSchedule(eduClass, DayOfWeek.WEDNESDAY,
+                        java.time.LocalTime.of(14, 0), java.time.LocalTime.of(15, 0),
+                        "Lab A", "Quiz review and model exploration"),
+                new ClassSchedule(eduClass, DayOfWeek.FRIDAY,
+                        java.time.LocalTime.of(10, 0), java.time.LocalTime.of(11, 30),
+                        "Room 205", "Weekly assessment & assignment hand-in")
+        ));
+        log.info("[SEED] schedules={}", classScheduleRepository.count());
+
         log.info("[SEED] ===== SEED COMPLETE: users={} classes={} classMembers={} contents={} parts={} "
-                        + "questions={} assignments={} =====",
+                        + "questions={} assignments={} schedules={} =====",
                 userRepository.count(), eduClassRepository.count(), classMemberRepository.count(),
                 arContentRepository.count(), contentPartRepository.count(),
-                quizQuestionRepository.count(), assignmentRepository.count());
+                quizQuestionRepository.count(), assignmentRepository.count(),
+                classScheduleRepository.count());
     }
 
     // ------------------------------------------------------------------ helpers
